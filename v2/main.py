@@ -1,4 +1,4 @@
-# ~ Imports ~ #
+import json
 import pygame
 import random
 import os
@@ -9,7 +9,7 @@ pygame.init()
 clock = pygame.time.Clock()
 
 # Create window
-(display_width,display_height) = (256,224)
+(display_width, display_height) = (256, 224)
 
 # Window scale
 def setScale(scale: int):
@@ -20,13 +20,11 @@ display = pygame.display.set_mode((display_width, display_height))
 pygame.display.set_caption('PyTetris')
 setScale(3)
 
-
-
-
 # Load assets
 screen = pygame.image.load(f'images/gui/bg.png').convert()
 paused_overlay = pygame.image.load(f'images/gui/paused.png').convert_alpha()
 death_overlay = pygame.image.load(f'images/gui/gameOver.png').convert_alpha()
+static_text = pygame.image.load(f'images/gui/staticText.png').convert_alpha()
 pygame.mixer.music.load('sounds/music.mp3')
 
 sounds = {
@@ -46,21 +44,22 @@ pieces = [
     pygame.image.load(f'images/pieces/ghost.png').convert_alpha()
 ]
 
+# Load controls from JSON
+with open('controls.json') as f:
+    json_controls = json.load(f)
 
-
-
-# Load controls
+# Initialize the controls dictionary
 controls = {
-    "left": {pygame.K_a,pygame.K_LEFT},
-    "right": {pygame.K_d,pygame.K_RIGHT},
-    "down": {pygame.K_s,pygame.K_DOWN},
+    "left": {pygame.K_a, pygame.K_LEFT},
+    "right": {pygame.K_d, pygame.K_RIGHT},
+    "down": {pygame.K_s, pygame.K_DOWN},
     "hard_down": {pygame.K_SPACE},
     "hold": {pygame.K_h},
-    "left_rot": {pygame.K_q,pygame.K_RSHIFT},
-    "right_rot": {pygame.K_e,pygame.K_END},
+    "left_rot": {pygame.K_q, pygame.K_RSHIFT},
+    "right_rot": {pygame.K_e, pygame.K_END},
     "pause": {pygame.K_RETURN},
     "quit": {pygame.K_ESCAPE},
-    "ghost": {pygame.K_g,},
+    "ghost": {pygame.K_g},
     "scale1": {pygame.K_1},
     "scale2": {pygame.K_2},
     "scale3": {pygame.K_3},
@@ -70,9 +69,17 @@ controls = {
     "mute": {pygame.K_0}
 }
 
+# Update controls with the ones from the JSON file
+for key, value in json_controls.items():
+    if key in controls:
+        controls[key].add(getattr(pygame, value))
+    else:
+        controls[key] = {getattr(pygame, value)}
+
+# Add the standard "up" key to the rotation controls
+controls["right_rot"].add(pygame.K_UP)
 
 # Define variables
-
 frameRate = 60
 show_ghost = True
 
@@ -102,9 +109,6 @@ stats = {
     'Z':0
 }
 
-
-
-
 # Map storage
 tileMap = []
 def clearMap():
@@ -117,23 +121,21 @@ def clearMap():
         tileMap.append(column)
 clearMap()
     
-def setTileonMap(x,y, value):
+def setTileonMap(x, y, value):
     try:
         tileMap[y][x] = value
         return value
     except IndexError:
-        return (x,y)
+        return (x, y)
 
-def getTileonMap(x,y):
+def getTileonMap(x, y):
     try:
         return tileMap[y][x]
     except IndexError:
-        return (x,y)
+        return (x, y)
     
 def rotateTable(table):
     return [[*r][::-1] for r in zip(*table)]
-
-
 
 # Rendering
 stamps = []
@@ -146,7 +148,7 @@ AREFlashes = 3
 flash_stamps = []
 def flashStamps():
     for pos, sprite in flash_stamps:
-        if AREpauseLength <= (TotalAREpauseLength/(2*AREFlashes)) or (AREpauseLength > (TotalAREpauseLength/(2*AREFlashes))*2 and AREpauseLength <= (TotalAREpauseLength/(2*AREFlashes))*3) or (AREpauseLength > (TotalAREpauseLength/(2*AREFlashes))*4 and AREpauseLength <= (TotalAREpauseLength/(2*AREFlashes))*5):
+        if AREpauseLength <= (TotalAREpauseLength / (2 * AREFlashes)) or (AREpauseLength > (TotalAREpauseLength / (2 * AREFlashes)) * 2 and AREpauseLength <= (TotalAREpauseLength / (2 * AREFlashes)) * 3) or (AREpauseLength > (TotalAREpauseLength / (2 * AREFlashes)) * 4 and AREpauseLength <= (TotalAREpauseLength / (2 * AREFlashes)) * 5):
             screen.blit(sprite.image, pos)
         else:
             pygame.draw.rect(screen, "white", (pos[0], pos[1], 7, 7))
@@ -154,22 +156,58 @@ def flashStamps():
 # Draw Text
 def writeNums(pos: tuple, num: int, length: int):
     full_num = str(num)
-    full_num = (length-len(full_num))*'0'+full_num
+    full_num = (length - len(full_num)) * '0' + full_num
     i = 0
     for c in full_num:
-        screen.blit(pygame.image.load(f'images/text/{c}.png').convert_alpha(), (pos[0]+8*i,pos[1]))
+        screen.blit(pygame.image.load(f'images/text/{c}.png').convert_alpha(), (pos[0] + 8 * i, pos[1]))
         i += 1
 
+# Adjust hue function
+def change_hue(image, hue):
+    """Change the hue of an image."""
+    image = image.copy()
+    uimage = pygame.surfarray.pixels3d(image)
+    hsv = pygame.surfarray.array3d(image)
+    hsv = hsv.astype('float32')
+    r, g, b = hsv[..., 0], hsv[..., 1], hsv[..., 2]
+    maxc = hsv.max(-1)
+    minc = hsv.min(-1)
+    delta = maxc - minc
+    s = delta / maxc
+    s[delta == 0] = 0
+    v = maxc
+    delta[delta == 0] = 1
+    h = (g - b) / delta % 6
+    h[(maxc == r) & (g < b)] += 6
+    h[maxc == g] = (b - r) / delta[maxc == g] + 2
+    h[maxc == b] = (r - g) / delta[maxc == b] + 4
+    h /= 6
+    h += hue / 360.0
+    h %= 1
+    hsv[..., 0] = h * 360
+    hsv[..., 1] = s * 255
+    hsv[..., 2] = v
+    hsv = hsv.astype('uint8')
+    pygame.surfarray.blit_array(image, hsv)
+    del uimage
+    del hsv
+    return image
 
+def hsv_to_rgb(h, s, v, a=255):
+    out = pygame.Color(0)
+    out.hsva = (h, s, v, a)
+    return out
 
+def num_wrap(value, max):
+    out = value
+    while out > max:
+        out = out - max
+    return out
 
-# Shapes and pieces
-all_shapes = {}
 class Shapes:
     class shape:
-        # The individual blocks that make up a shape
         class __piece:
-            def __init__(self,image,id,localx,localy,pieceid) -> None:
+            def __init__(self, image, id, localx, localy, pieceid) -> None:
                 self.sprite = pygame.sprite.Sprite()
                 self.sprite.image = pygame.image.load(f'images/pieces/{image}.png').convert_alpha()
                 self.sprite.rect = self.sprite.image.get_rect()
@@ -179,7 +217,7 @@ class Shapes:
                 self.localy = localy
                 self.center = False
                 
-        def __init__(self,id: str,piece_sprite: str,hitbox: str) -> None:
+        def __init__(self, id: str, piece_sprite: str, hitbox: str) -> None:
             self.id = id
             if id[0] != 'G':
                 self.gui_sprite = pygame.image.load(f'images/shapes/{id}.png').convert_alpha()
@@ -200,8 +238,8 @@ class Shapes:
             x = 0
             y = 0
             for c in self.hitbox:
-                if c.isdigit():
-                    piece = self.__piece(self.piece_sprite,c,x,y,self.id)
+                if c == '#':
+                    piece = self.__piece(self.piece_sprite, '#', x, y, self.id)
                     self.pieces.append(piece)
                     self.piecesGroup.add(piece.sprite)
                     x += 1
@@ -211,9 +249,9 @@ class Shapes:
                     y += 1
                     x = 0
             self.width = len(self.hitbox.split('-')[0])
-            self.height = self.hitbox.count('-')+1
+            self.height = self.hitbox.count('-') + 1
             
-        def rotate(self,dir):
+        def rotate(self, dir):
             self.rotation = self.rotation + dir
             if self.rotation < 0:
                 self.rotation = 3
@@ -223,7 +261,7 @@ class Shapes:
             for line in self.base_hitbox.split('-'):
                 new_hitbox.append([])
                 for c in line:
-                    if c.isdigit() or c == ' ':
+                    if c == '#' or c == ' ':
                         new_hitbox[-1].append(c)
             for i in range(self.rotation):
                 new_hitbox = rotateTable(new_hitbox)
@@ -238,39 +276,40 @@ class Shapes:
             
         def draw(self):
             for piece in self.pieces:
-                piece.sprite.rect.x = 96+(8*(self.x+piece.localx))
-                piece.sprite.rect.y = 40+(8*(self.y+piece.localy))
+                piece.sprite.rect.x = 96 + (8 * (self.x + piece.localx))
+                piece.sprite.rect.y = 40 + (8 * (self.y + piece.localy))
             self.piecesGroup.draw(screen)
             
         def stamp(self):
             for piece in self.pieces:
-                x = 96+(8*(self.x+piece.localx))
-                y = 40+(8*(self.y+piece.localy))
+                x = 96 + (8 * (self.x + piece.localx))
+                y = 40 + (8 * (self.y + piece.localy))
                 s = piece.sprite
-                s.globalx = self.x+piece.localx
-                s.globaly = self.y+piece.localy
-                setTileonMap(self.x+piece.localx,self.y+piece.localy,self.id)
+                s.globalx = self.x + piece.localx
+                s.globaly = self.y + piece.localy
+                setTileonMap(self.x + piece.localx, self.y + piece.localy, self.id)
             self.makePieces()
-            
-    I = shape('I','1','0123')
-    J = shape('J','0','012-  3')
-    L = shape('L','2','012-3  ')
-    O = shape('O','1','01-23')
-    S = shape('S','0',' 01-23 ')
-    T = shape('T','1','012- 3 ')
-    Z = shape('Z','2','01 - 23')
+
+    I = shape('I', '1', '####')
+    J = shape('J', '0', '###-  #')
+    L = shape('L', '2', '###-#  ')
+    O = shape('O', '1', '##-##')
+    S = shape('S', '0', ' ##-## ')
+    T = shape('T', '1', '###- # ')
+    Z = shape('Z', '2', '## - ##')
+
     def __makeBag():
         out = []
         for shape in list(all_shapes.values()):
-            out.insert(random.randint(0,len(out)),shape)
+            out.insert(random.randint(0, len(out)), shape)
         return out
+
     bag = __makeBag()
+
     def fromBag() -> shape:
         if len(Shapes.bag) == 0:
             Shapes.bag = Shapes.__makeBag()
         return Shapes.bag.pop(0)
-
-
 
 def getInp(control_scheme):
     keys = pygame.key.get_pressed()
@@ -279,10 +318,9 @@ def getInp(control_scheme):
             return True
     return False
 
-
 # Clearing Lines
 def clearLine(y: int):
-    global linesCleared,AREpaused,AREpauseLength,stamps,lines,lvl,speed
+    global linesCleared, AREpaused, AREpauseLength, stamps, lines, lvl, speed
     sounds['line'].play()
     linesCleared += 1
     AREpaused = True
@@ -291,13 +329,13 @@ def clearLine(y: int):
     empty = []
     for i in range(10):
         empty.append('')
-    tileMap.insert(0,empty)
+    tileMap.insert(0, empty)
     temp = []
-    for pos,piece in stamps:
+    for pos, piece in stamps:
         if piece.globaly != y:
-            temp.append((pos,piece))
+            temp.append((pos, piece))
         else:
-            flash_stamps.append((pos,piece))
+            flash_stamps.append((pos, piece))
     stamps = temp
     lines += 1
     if lines % 10 == 0:
@@ -306,7 +344,7 @@ def clearLine(y: int):
             speed -= 5
         elif lvl == 9:
             speed -= 2
-        elif lvl in [10,13,16,19,29]:
+        elif lvl in [10, 13, 16, 19, 29]:
             speed -= 1
         if lvl > 99:
             lvl = 99
@@ -315,54 +353,41 @@ def clearLine(y: int):
         lines = 999
 
 def getCollision():
-    global collided,left_collided,right_collided
+    global collided, left_collided, right_collided
     collided = False
     left_collided = False
     right_collided = False
     
     tempMap = copy.deepcopy(tileMap)
     for piece in currentShape.pieces:
-        x = currentShape.x+piece.localx
-        y = currentShape.y+piece.localy
+        x = currentShape.x + piece.localx
+        y = currentShape.y + piece.localy
         tempMap[y][x] = 'x'
     x = 0
     y = 0
     for row in tempMap:
         for c in row:
             if c == 'x':
-                if currentShape.y == (20-currentShape.height):
+                if currentShape.y == (20 - currentShape.height):
                         collided = True
-                elif not (tempMap[y+1][x] in 'x '):
+                elif not (tempMap[y + 1][x] in 'x '):
                     collided = True
                 
                 if currentShape.x <= 0:
                     left_collided = True
-                elif not (tempMap[y][x-1] in 'x '):
+                elif not (tempMap[y][x - 1] in 'x '):
                     left_collided = True
                 
-                if currentShape.x >= 10-currentShape.width:
+                if currentShape.x >= 10 - currentShape.width:
                     right_collided = True
-                elif not (tempMap[y][x+1] in 'x '):
+                elif not (tempMap[y][x + 1] in 'x '):
                     right_collided = True
             x += 1
         y += 1
         x = 0
     del tempMap
 
-def hsv_to_rgb( h:int, s:int, v:int, a:int=255 ) -> tuple:
-    out = pygame.Color(0)
-    out.hsva = (h,s,v,a)
-    return (out.r, out.g, out.b, out.a)
-
-def num_wrap(value:int,max:int):
-    out = value
-    while out > max:
-        out = out - max
-    return out
-
 replay = True
-
-
 
 # Main game loop
 while replay:
@@ -385,7 +410,7 @@ while replay:
     lines = 0
     lvl = 0
     speed = 48
-    stats = {'I':0,'J':0,'L':0,'O':0,'S':0,'T':0,'Z':0}
+    stats = {'I': 0, 'J': 0, 'L': 0, 'O': 0, 'S': 0, 'T': 0, 'Z': 0}
 
     currentShape = Shapes.fromBag()
     currentShape.x = 4
@@ -399,17 +424,15 @@ while replay:
     nextShape.rotate(-1)
     holdShape = None
     holdCount = 0
-    ghostShape = Shapes.shape('G'+currentShape.id,'ghost',currentShape.hitbox)
+    ghostShape = Shapes.shape('G' + currentShape.id, 'ghost', currentShape.hitbox)
 
     pygame.mixer.music.play(-1)
     while running:
         clock.tick(frameRate)
         for event in pygame.event.get():
-            # Detect window closed
             if event.type == pygame.QUIT:
                 closed = True
                 replay = False
-            # Scale keys
             if event.type == pygame.KEYDOWN:
                 if event.key in controls['scale1']:
                     setScale(1)
@@ -419,7 +442,7 @@ while replay:
                     setScale(3)
                 elif event.key in controls['scale4']:
                     setScale(4)
-                if event.key  in controls['pause']:
+                if event.key in controls['pause']:
                     paused = not paused
                     if paused:
                         pygame.mixer.music.pause()
@@ -434,7 +457,7 @@ while replay:
                     currentShape.rotate(-1)
                     i = True
                     for piece in currentShape.pieces:
-                        if currentShape.x+piece.localx >= 10 or currentShape.y+piece.localy >= 20 or getTileonMap(currentShape.x+piece.localx,currentShape.y+piece.localy) != '':
+                        if currentShape.x + piece.localx >= 10 or currentShape.y + piece.localy >= 20 or getTileonMap(currentShape.x + piece.localx, currentShape.y + piece.localy) != '':
                             currentShape.rotate(1)
                             i = False
                             break
@@ -445,7 +468,7 @@ while replay:
                     currentShape.rotate(1)
                     i = True
                     for piece in currentShape.pieces:
-                        if currentShape.x+piece.localx >= 10 or currentShape.y+piece.localy >= 20 or getTileonMap(currentShape.x+piece.localx,currentShape.y+piece.localy) != '':
+                        if currentShape.x + piece.localx >= 10 or currentShape.y + piece.localy >= 20 or getTileonMap(currentShape.x + piece.localx, currentShape.y + piece.localy) != '':
                             currentShape.rotate(-1)
                             i = False
                             break
@@ -453,7 +476,7 @@ while replay:
                         sounds['rotate'].play()
                         getCollision()
                 if (not paused) and (not AREpaused) and event.key in controls['hold'] and holdCount == 0:
-                    if holdShape == None:
+                    if holdShape is None:
                         currentShape.x = 4
                         currentShape.y = 0
                         currentShape.rotation = 1
@@ -464,7 +487,7 @@ while replay:
                         nextShape.rotation = 1
                         nextShape.rotate(-1)
                         currentShape = nextShape
-                        ghostShape = Shapes.shape('G'+currentShape.id,'ghost',currentShape.hitbox)
+                        ghostShape = Shapes.shape('G' + currentShape.id, 'ghost', currentShape.hitbox)
                         nextShape = Shapes.fromBag()
                     else:
                         currentShape.x = 4
@@ -479,11 +502,10 @@ while replay:
                         currentShape = holdShape
                         holdShape = temp
                         del temp
-                        ghostShape = Shapes.shape('G'+currentShape.id,'ghost',currentShape.hitbox)
+                        ghostShape = Shapes.shape('G' + currentShape.id, 'ghost', currentShape.hitbox)
                     holdCount += 1
                     getCollision()
         if (not paused) and (not AREpaused):
-            # Input
             if (not getInp('left')) and (not getInp('right')):
                 holding_input = False
             if getInp('left') and (not getInp('right')) and (not left_collided) and last_input == 0:
@@ -515,12 +537,11 @@ while replay:
                 last_soft_input = 2
                 getCollision()
             if ((not holding_down) and getInp('hard_down')) and currentShape.y < ghostShape.y and not collided:
-                score += 2*(ghostShape.y - currentShape.y)
+                score += 2 * (ghostShape.y - currentShape.y)
                 currentShape.y = ghostShape.y
                 if score > 999999:
                     score = 999999
 
-        # Rendering
         screen = pygame.image.load(f'images/gui/bg.png').convert_alpha()
         screen.fill('black')
         if not AREpaused:
@@ -531,86 +552,64 @@ while replay:
                 for tile in row:
                     if tile != '':
                         sprite = pygame.sprite.Sprite()
-                        sprite.image = pygame.image.load(f'images/pieces/{all_shapes[tile].piece_sprite}.png').convert_alpha()
+                        sprite.image = change_hue(pygame.image.load(f'images/pieces/{all_shapes[tile].piece_sprite}.png').convert_alpha(), num_wrap(lvl * 12, 360))
                         sprite.rect = sprite.image.get_rect()
                         sprite.globaly = y
-                        stamps.append(((96+8*x,40+8*y),sprite))
+                        stamps.append(((96 + 8 * x, 40 + 8 * y), sprite))
                     x += 1
                 y += 1
         drawStamps()
         if AREpaused:
             flashStamps()
-        # Test game over
         for c in tileMap[0]:
             if c != '':
                 running = False
                 break
         if running:
-            screen.blit(nextShape.gui_sprite,(191,95))
-            if holdShape != None:
-                screen.blit(holdShape.gui_sprite,(191,151))
+            screen.blit(nextShape.gui_sprite, (191, 95))
+            if holdShape is not None:
+                screen.blit(holdShape.gui_sprite, (191, 151))
             if show_ghost:
                 ghostShape.draw()
             currentShape.draw()
-        if lvl == 0:
-            layer1 = pygame.image.load(f'images/gui/bg.png').convert_alpha()
-            layer1.fill(hsv_to_rgb(300,41,100,0), special_flags=pygame.BLEND_RGB_MULT)
-            layer2 = pygame.image.load(f'images/gui/bg1.png').convert_alpha()
-            layer2.fill(hsv_to_rgb(300,20,100,0), special_flags=pygame.BLEND_RGB_MULT)
-            screen.blit(layer1,(0,0))
-            screen.blit(layer2,(0,0))
-            screen.blit(layer2,(0,0))
-            screen.blit(pygame.image.load(f'images/gui/bg2.png').convert_alpha(),(0,0))
-        else:
-            screen.blit(pygame.image.load(f'images/gui/bg.png').convert_alpha(),(0,0))
-            screen.fill(hsv_to_rgb(num_wrap(lvl*12,360),41,100,0), special_flags=pygame.BLEND_RGB_MULT)
-            layer2 = pygame.image.load(f'images/gui/bg1.png').convert_alpha()
-            layer2.fill(hsv_to_rgb(num_wrap(lvl*12,360),20,100,0), special_flags=pygame.BLEND_RGB_MULT)
-            screen.blit(layer2,(0,0))
-            layer3 = pygame.image.load(f'images/gui/bg2.png').convert_alpha()
-            layer3.fill(hsv_to_rgb(num_wrap(lvl*12,360),20,100,0), special_flags=pygame.BLEND_RGB_MULT)
-            screen.blit(layer3,(0,0))
-        screen.blit(pygame.image.load(f'images/gui/staticText.png').convert_alpha(),(0,0))
-        writeNums((152,16),lines,3)
-        writeNums((192,32),score,6)
-        writeNums((208,72),lvl,2)
+        screen.blit(static_text, (0, 0))
+        writeNums((152, 16), lines, 3)
+        writeNums((192, 32), score, 6)
+        writeNums((208, 72), lvl, 2)
         i = 0
         for shape in 'TJZOSLI':
-            writeNums((48,88+16*i),stats[shape],3)
+            writeNums((48, 88 + 16 * i), stats[shape], 3)
             i += 1
         if paused and running:
-            screen.blit(paused_overlay,(0,0))
+            screen.blit(paused_overlay, (0, 0))
         if not running:
-            screen.blit(death_overlay,(0,0))
+            screen.blit(death_overlay, (0, 0))
         scaled = pygame.transform.scale(screen, display.get_size())
         display.blit(scaled, (0, 0))
         pygame.display.flip()
 
-
         if (not paused) and (not AREpaused):
-            # Get ghost
             ghostCollided = False
-            
             ghostShape.x = currentShape.x
-            ghostShape.y = currentShape.y-1
-            ghostShape.rotation = currentShape.rotation-1
+            ghostShape.y = currentShape.y - 1
+            ghostShape.rotation = currentShape.rotation - 1
             ghostShape.rotate(1)
             while not ghostCollided:
                 ghostShape.y += 1
-                if ghostShape.y == (20-ghostShape.height):
+                if ghostShape.y == (20 - ghostShape.height):
                     ghostCollided = True
                 else:
                     tempMap = copy.deepcopy(tileMap)
                     for piece in ghostShape.pieces:
-                        x = ghostShape.x+piece.localx
-                        y = ghostShape.y+piece.localy
+                        x = ghostShape.x + piece.localx
+                        y = ghostShape.y + piece.localy
                         tempMap[y][x] = 'x'
                     x = 0
                     y = 0
                     for row in tempMap:
                         for c in row:
                             if c == 'x':
-                                if not (tempMap[y+1][x] in 'x '):
+                                if not (tempMap[y + 1][x] in 'x '):
                                     ghostCollided = True
                                     break
                             x += 1
@@ -618,9 +617,7 @@ while replay:
                         x = 0
                     del tempMap
 
-            # Collision and line clearing
             getCollision()
-
             i = 0
             cleared_count = 0
             for row in tileMap:
@@ -633,10 +630,10 @@ while replay:
                     clearLine(i)
                     cleared_count += 1
                 i += 1
-            score += (cleared_count // 4)*(1200*(lvl+1)) # tetrises
-            score += ((cleared_count % 4) // 3)*(300*(lvl+1)) # triples
-            score += (((cleared_count % 4) % 3) // 2)*(100*(lvl+1)) # doubles 
-            score += (((cleared_count % 4) % 3) % 2)*(40*(lvl+1)) # singles
+            score += (cleared_count // 4) * (1200 * (lvl + 1)) # tetrises
+            score += ((cleared_count % 4) // 3) * (300 * (lvl + 1)) # triples
+            score += (((cleared_count % 4) % 3) // 2) * (100 * (lvl + 1)) # doubles 
+            score += (((cleared_count % 4) % 3) % 2) * (40 * (lvl + 1)) # singles
             if score > 999999:
                 score = 999999
 
@@ -653,7 +650,7 @@ while replay:
                 nextShape.rotation = 1
                 nextShape.rotate(-1)
                 currentShape = nextShape
-                ghostShape = Shapes.shape('G'+currentShape.id,'ghost',currentShape.hitbox)
+                ghostShape = Shapes.shape('G' + currentShape.id, 'ghost', currentShape.hitbox)
                 nextShape = Shapes.fromBag()
                 holdCount = 0
                 if getInp('down') or getInp('hard_down'):
@@ -678,25 +675,23 @@ while replay:
                     y = stamp[1].globaly
                     if y < topBadY:
                         topBadY = y
-                for pos,piece in stamps:
+                for pos, piece in stamps:
                     if piece.globaly < topBadY:
                         piece.globaly += linesCleared
-                        temp.append(((pos[0],pos[1]+8*linesCleared),piece))
+                        temp.append(((pos[0], pos[1] + 8 * linesCleared), piece))
                     else:
-                        temp.append((pos,piece))
+                        temp.append((pos, piece))
                 flash_stamps = []
                 stamps = temp
                 linesCleared = 0
         if closed:
             running = False
-    # Window closed logic
     else:
         pygame.mixer.music.stop()
         sounds['death'].play()
         game_over = True
         while game_over and not closed:
             for event in pygame.event.get():
-                # Detect window closed
                 if event.type == pygame.QUIT:
                     game_over = False
                     replay = False
@@ -707,4 +702,4 @@ while replay:
                     if event.key == pygame.K_RETURN:
                         game_over = False
 else:
-    print('crashed :(') # we love how this is still here lmao
+    print('crashed :(')
