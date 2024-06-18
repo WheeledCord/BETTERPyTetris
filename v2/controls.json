@@ -1,3 +1,19 @@
 {
-    "It do be" : "defining the controls"
+    "left": "K_LEFT",
+    "right": "K_RIGHT",
+    "down": "K_DOWN",
+    "hard_down": "K_SPACE",
+    "hold": "K_h",
+    "left_rot": "K_q",
+    "right_rot": "K_e",
+    "pause": "K_RETURN",
+    "quit": "K_ESCAPE",
+    "ghost": "K_g",
+    "scale1": "K_1",
+    "scale2": "K_2",
+    "scale3": "K_3",
+    "scale4": "K_4",
+    "vol_up": "K_KP_PLUS",
+    "vol_down": "K_KP_MINUS",
+    "mute": "K_0"
 }
